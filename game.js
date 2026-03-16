@@ -1,3 +1,21 @@
+// ===== 설정 객체 =====
+const GAME_CONFIG = {
+  diceRollDuration: 900,
+  moveStepDelay: 200,
+  startBonus: 50,
+  particleCount: 15,
+  maxParticles: 50,
+};
+
+const BRAND = {
+  name: 'POPUP MARBLE',
+  logoTop: 'POPUP',
+  logoBottom: 'MARBLE',
+  primaryColor: '#FF6B35',
+  secondaryColor: '#004E89',
+  couponPrefix: 'POPUP',
+};
+
 // ===== 부루마블 보드 데이터 (9x9, 테두리 32칸, 시계방향) =====
 const CELLS = [
   // ── 하단 (좌→우) 0~8 ──
@@ -92,12 +110,37 @@ const CHANCE_EVENTS = [
 ];
 
 // ===== 상태 =====
-let playerPos = 0;
-let moveCount = 0;
-let totalPoints = 0;
-let isRolling = false;
-let gameComplete = false;
-let skipNextTurn = false;
+const GameState = {
+  playerPos: 0,
+  moveCount: 0,
+  totalPoints: 0,
+  isRolling: false,
+  gameComplete: false,
+  skipNextTurn: false,
+};
+
+// ===== DOM 캐싱 =====
+const DOM = {};
+function cacheDom() {
+  DOM.board = document.getElementById('board');
+  DOM.rollBtn = document.getElementById('roll-btn');
+  DOM.resetBtn = document.getElementById('reset-btn');
+  DOM.dice1 = document.getElementById('dice1');
+  DOM.dice2 = document.getElementById('dice2');
+  DOM.diceResult = document.getElementById('dice-result');
+  DOM.diceContainer = document.getElementById('dice-container');
+  DOM.moveCount = document.getElementById('move-count');
+  DOM.points = document.getElementById('points');
+  DOM.currentPos = document.getElementById('current-pos');
+  DOM.eventCard = document.getElementById('event-card');
+  DOM.eventText = document.getElementById('event-text');
+  DOM.particles = document.getElementById('particles');
+  DOM.boardCenter = document.getElementById('board-center');
+  DOM.introModal = document.getElementById('intro-modal');
+  DOM.introStartBtn = document.getElementById('intro-start-btn');
+  DOM.introLogoTop = document.getElementById('intro-logo-top');
+  DOM.introLogoBottom = document.getElementById('intro-logo-bottom');
+}
 
 // ===== 그리드 좌표 (9x9) =====
 function getGridPositions() {
@@ -112,8 +155,7 @@ const GRID = getGridPositions();
 
 // ===== 보드 생성 =====
 function buildBoard() {
-  const board = document.getElementById('board');
-  board.innerHTML = '';
+  DOM.board.innerHTML = '';
   const gridMap = Array.from({ length: 9 }, () => Array(9).fill(-1));
   GRID.forEach((pos, idx) => { gridMap[pos.row][pos.col] = idx; });
 
@@ -148,7 +190,7 @@ function buildBoard() {
         `;
         div.appendChild(content);
 
-        if (idx === playerPos) {
+        if (idx === GameState.playerPos) {
           div.classList.add('active');
           const token = document.createElement('div');
           token.className = 'player-token';
@@ -157,7 +199,7 @@ function buildBoard() {
       } else {
         div.className = 'cell inner';
       }
-      board.appendChild(div);
+      DOM.board.appendChild(div);
     }
   }
 }
@@ -209,7 +251,6 @@ function setDiceValue(diceEl, value) {
 
 // ===== 파티클 이펙트 =====
 function spawnParticles(x, y, count, colors) {
-  const container = document.getElementById('particles');
   for (let i = 0; i < count; i++) {
     const p = document.createElement('div');
     p.className = 'particle';
@@ -229,7 +270,7 @@ function spawnParticles(x, y, count, colors) {
       --rot: ${Math.random() * 720 - 360}deg;
       --duration: ${dur}s;
     `;
-    container.appendChild(p);
+    DOM.particles.appendChild(p);
     setTimeout(() => p.remove(), dur * 1000);
   }
 }
@@ -243,72 +284,67 @@ function getCellCenter(idx) {
 
 // ===== 화면 흔들림 =====
 function screenShake() {
-  const center = document.getElementById('board-center');
-  center.classList.add('screen-shake');
-  setTimeout(() => center.classList.remove('screen-shake'), 400);
+  DOM.boardCenter.classList.add('screen-shake');
+  setTimeout(() => DOM.boardCenter.classList.remove('screen-shake'), 400);
 }
 
 // ===== 이벤트 카드 애니메이션 =====
 function showEventCard(msg, type) {
-  const card = document.getElementById('event-card');
-  const text = document.getElementById('event-text');
-
-  card.className = 'event-card';
+  DOM.eventCard.className = 'event-card';
   // 잠깐 리플로우 강제
-  void card.offsetWidth;
-  card.classList.add('flip');
-  card.classList.add(type); // positive, negative, special
+  void DOM.eventCard.offsetWidth;
+  DOM.eventCard.classList.add('flip');
+  DOM.eventCard.classList.add(type); // positive, negative, special
 
   setTimeout(() => {
-    text.textContent = msg;
+    DOM.eventText.textContent = msg;
   }, 250); // 플립 중간에 텍스트 교체
 }
 
 // ===== 주사위 굴리기 =====
 async function rollDice() {
-  if (isRolling || gameComplete) return;
+  if (GameState.isRolling || GameState.gameComplete) return;
+  if (navigator.vibrate) navigator.vibrate(50);
 
-  if (skipNextTurn) {
-    skipNextTurn = false;
-    moveCount++;
-    document.getElementById('move-count').textContent = moveCount;
+  if (GameState.skipNextTurn) {
+    GameState.skipNextTurn = false;
+    GameState.moveCount++;
+    DOM.moveCount.textContent = GameState.moveCount;
     showEventCard('무인도에서 탈출! 다음 턴에 이동하세요.', 'special');
     return;
   }
 
-  isRolling = true;
-  const btn = document.getElementById('roll-btn');
-  btn.disabled = true;
+  Sound.init();
+  Sound.diceRoll();
+  GameState.isRolling = true;
+  DOM.rollBtn.disabled = true;
 
-  const d1 = document.getElementById('dice1');
-  const d2 = document.getElementById('dice2');
-  const cube1 = d1.querySelector('.dice-cube');
-  const cube2 = d2.querySelector('.dice-cube');
+  const cube1 = DOM.dice1.querySelector('.dice-cube');
+  const cube2 = DOM.dice2.querySelector('.dice-cube');
 
   // 3D 롤링 애니메이션
   cube1.classList.add('rolling');
   cube2.classList.add('rolling');
 
-  await sleep(900);
+  await sleep(GAME_CONFIG.diceRollDuration);
 
   // 최종 결과
   const v1 = Math.ceil(Math.random() * 6);
   const v2 = Math.ceil(Math.random() * 6);
   cube1.classList.remove('rolling');
   cube2.classList.remove('rolling');
-  setDiceValue(d1, v1);
-  setDiceValue(d2, v2);
+  setDiceValue(DOM.dice1, v1);
+  setDiceValue(DOM.dice2, v2);
 
   const total = v1 + v2;
   const isDouble = v1 === v2;
 
-  const resultEl = document.getElementById('dice-result');
-  resultEl.innerHTML = `${v1} + ${v2} = <strong>${total}</strong>`;
+  DOM.diceResult.innerHTML = `${v1} + ${v2} = <strong>${total}</strong>`;
   if (isDouble) {
-    resultEl.innerHTML += ' <span class="double-badge">DOUBLE!</span>';
+    DOM.diceResult.innerHTML += ' <span class="double-badge">DOUBLE!</span>';
     screenShake();
     // 더블 파티클
-    const diceRect = document.getElementById('dice-container').getBoundingClientRect();
+    const diceRect = DOM.diceContainer.getBoundingClientRect();
     spawnParticles(
       diceRect.left + diceRect.width / 2,
       diceRect.top + diceRect.height / 2,
@@ -317,8 +353,8 @@ async function rollDice() {
     );
   }
 
-  moveCount++;
-  document.getElementById('move-count').textContent = moveCount;
+  GameState.moveCount++;
+  DOM.moveCount.textContent = GameState.moveCount;
 
   // 말 이동
   await movePlayer(total);
@@ -327,51 +363,51 @@ async function rollDice() {
   handleCellEvent();
 
   // 도착 파티클
-  const pos = getCellCenter(playerPos);
-  const cell = CELLS[playerPos];
+  const pos = getCellCenter(GameState.playerPos);
+  const cell = CELLS[GameState.playerPos];
   const pColors = cell.event && cell.event.points > 0
     ? ['#6BCB77', '#2ecc71', '#FCBF49']
     : cell.event && cell.event.points < 0
       ? ['#FF6B6B', '#e74c3c', '#FFA06B']
       : ['#4D96FF', '#9B72CF', '#2EC4B6'];
-  spawnParticles(pos.x, pos.y, 15, pColors);
+  spawnParticles(pos.x, pos.y, GAME_CONFIG.particleCount, pColors);
 
   // 완주 체크
-  if (playerPos === 0 && moveCount > 1) {
-    gameComplete = true;
+  if (GameState.playerPos === 0 && GameState.moveCount > 1) {
+    GameState.gameComplete = true;
+    GameState.isRolling = false;
     await sleep(600);
     showCompleteModal();
   } else {
-    btn.disabled = false;
-    if (isDouble && !gameComplete && !skipNextTurn) {
-      showEventCard(document.getElementById('event-text').textContent + ' 🎯 더블! 한 번 더!', 'special');
+    GameState.isRolling = false;
+    DOM.rollBtn.disabled = false;
+    if (isDouble && !GameState.gameComplete && !GameState.skipNextTurn) {
+      showEventCard(DOM.eventText.textContent + ' 🎯 더블! 한 번 더!', 'special');
     }
   }
-
-  isRolling = false;
 }
 
 // ===== 말 이동 (통통 바운스) =====
 async function movePlayer(steps) {
   for (let i = 0; i < steps; i++) {
     // 이전 위치
-    const prevCell = document.getElementById(`cell-${playerPos}`);
+    const prevCell = document.getElementById(`cell-${GameState.playerPos}`);
     if (prevCell) {
       prevCell.classList.remove('active');
       const tok = prevCell.querySelector('.player-token');
       if (tok) tok.remove();
     }
 
-    playerPos = (playerPos + 1) % TOTAL;
+    GameState.playerPos = (GameState.playerPos + 1) % TOTAL;
 
     // 출발 통과 보너스
-    if (playerPos === 0 && i < steps - 1) {
-      totalPoints += 50;
-      document.getElementById('points').textContent = totalPoints;
+    if (GameState.playerPos === 0 && i < steps - 1) {
+      GameState.totalPoints += GAME_CONFIG.startBonus;
+      DOM.points.textContent = GameState.totalPoints;
     }
 
     // 새 위치
-    const newCell = document.getElementById(`cell-${playerPos}`);
+    const newCell = document.getElementById(`cell-${GameState.playerPos}`);
     if (newCell) {
       newCell.classList.add('active');
       const token = document.createElement('div');
@@ -382,15 +418,16 @@ async function movePlayer(steps) {
       token.addEventListener('animationend', () => token.classList.remove('bounce'));
     }
 
-    await sleep(200);
+    Sound.step();
+    await sleep(GAME_CONFIG.moveStepDelay);
   }
 
-  document.getElementById('current-pos').textContent = CELLS[playerPos].name;
+  DOM.currentPos.textContent = CELLS[GameState.playerPos].name;
 }
 
 // ===== 이벤트 처리 =====
 function handleCellEvent() {
-  const cell = CELLS[playerPos];
+  const cell = CELLS[GameState.playerPos];
   let ev = cell.event;
 
   if (cell.type === 'golden') {
@@ -401,20 +438,69 @@ function handleCellEvent() {
   }
 
   if (ev) {
-    totalPoints = Math.max(0, totalPoints + ev.points);
-    document.getElementById('points').textContent = totalPoints;
+    GameState.totalPoints = Math.max(0, GameState.totalPoints + ev.points);
+    DOM.points.textContent = GameState.totalPoints;
 
     const cardType = ev.points > 0 ? 'positive' : ev.points < 0 ? 'negative' : 'special';
+    if (ev.points > 0) Sound.positive();
+    else if (ev.points < 0) Sound.negative();
     showEventCard(ev.msg, cardType);
 
-    if (ev.skip) skipNextTurn = true;
+    if (ev.skip) GameState.skipNextTurn = true;
   } else {
     showEventCard(`${cell.icon} ${cell.name}에 도착!`, 'special');
   }
 }
 
+// ===== 등급 판정 =====
+function getGrade(points) {
+  if (points >= 300) return { label: 'S', color: '#FFD700' };
+  if (points >= 200) return { label: 'A', color: '#9B72CF' };
+  if (points >= 100) return { label: 'B', color: '#4D96FF' };
+  return { label: 'C', color: '#999' };
+}
+
+// ===== 쿠폰 코드 생성 =====
+function generateCouponCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let suffix = '';
+  for (let i = 0; i < 6; i++) {
+    suffix += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return BRAND.couponPrefix + '-' + suffix;
+}
+
+// ===== 결과 localStorage 저장 =====
+function saveResult(score, turns, grade, couponCode) {
+  const key = 'popup-marble-results';
+  let results = [];
+  try {
+    results = JSON.parse(localStorage.getItem(key) || '[]');
+  } catch (_) {
+    results = [];
+  }
+  results.push({ score, turns, grade, couponCode, date: new Date().toISOString() });
+  localStorage.setItem(key, JSON.stringify(results));
+}
+
+// ===== 클립보드 복사 유틸 =====
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.style.cssText = 'position:fixed;opacity:0;';
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  el.remove();
+  return Promise.resolve();
+}
+
 // ===== 완주 모달 =====
 function showCompleteModal() {
+  Sound.complete();
   // 축하 파티클 폭발
   for (let i = 0; i < 5; i++) {
     setTimeout(() => {
@@ -427,57 +513,197 @@ function showCompleteModal() {
     }, i * 200);
   }
 
+  const grade = getGrade(GameState.totalPoints);
+  const couponCode = generateCouponCode();
+  saveResult(GameState.totalPoints, GameState.moveCount, grade.label, couponCode);
+
   const modal = document.createElement('div');
   modal.id = 'complete-modal';
   modal.innerHTML = `
     <div class="modal-content">
       <h2>🎉 세계 일주 완료!</h2>
       <p style="color:#666; margin-top:4px;">축하합니다!</p>
-      <div class="final-score">${totalPoints}<span class="score-unit">점</span></div>
-      <p class="modal-info">${moveCount}턴 만에 완주!</p>
-      <button onclick="resetGame()">🔄 다시 도전</button>
+      <div class="final-score">${GameState.totalPoints}<span class="score-unit">점</span></div>
+      <div class="grade-badge" style="color:${grade.color}; border-color:${grade.color};">${grade.label}</div>
+      <p class="modal-info">${GameState.moveCount}턴 만에 완주!</p>
+      <div class="coupon-section">
+        <p class="coupon-label">🎟️ 쿠폰이 발급되었습니다!</p>
+        <div class="coupon-code" id="coupon-code-box" title="클릭하여 복사">${couponCode}</div>
+        <p class="coupon-hint">클릭하면 복사됩니다</p>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-share-btn" class="btn-share">📤 결과 공유하기</button>
+        <button id="modal-reset-btn">🔄 다시 도전</button>
+      </div>
     </div>
   `;
   document.body.appendChild(modal);
-}
 
+  // 쿠폰 코드 클릭 복사
+  document.getElementById('coupon-code-box').addEventListener('click', function () {
+    copyToClipboard(couponCode).then(() => {
+      this.textContent = '✅ 복사됨!';
+      setTimeout(() => { this.textContent = couponCode; }, 1500);
+    });
+  });
+
+  // 공유 버튼
+  document.getElementById('modal-share-btn').addEventListener('click', () => {
+    const shareText = `🎲 ${BRAND.name}에서 ${GameState.totalPoints}점으로 ${grade.label}등급 달성! 쿠폰코드: ${couponCode}`;
+    if (navigator.share) {
+      navigator.share({ title: BRAND.name, text: shareText }).catch(() => {});
+    } else {
+      copyToClipboard(shareText).then(() => {
+        const btn = document.getElementById('modal-share-btn');
+        if (btn) {
+          btn.textContent = '✅ 클립보드에 복사됨!';
+          setTimeout(() => { btn.textContent = '📤 결과 공유하기'; }, 2000);
+        }
+      });
+    }
+  });
+
+  // 리셋 버튼
+  document.getElementById('modal-reset-btn').addEventListener('click', resetGame);
+}
 // ===== 리셋 =====
 function resetGame() {
-  playerPos = 0;
-  moveCount = 0;
-  totalPoints = 0;
-  isRolling = false;
-  gameComplete = false;
-  skipNextTurn = false;
+  GameState.playerPos = 0;
+  GameState.moveCount = 0;
+  GameState.totalPoints = 0;
+  GameState.isRolling = false;
+  GameState.gameComplete = false;
+  GameState.skipNextTurn = false;
 
-  document.getElementById('current-pos').textContent = '출발';
-  document.getElementById('move-count').textContent = '0';
-  document.getElementById('points').textContent = '0';
-  document.getElementById('dice-result').textContent = '';
-  document.getElementById('roll-btn').disabled = false;
+  DOM.currentPos.textContent = '출발';
+  DOM.moveCount.textContent = '0';
+  DOM.points.textContent = '0';
+  DOM.diceResult.textContent = '';
+  DOM.rollBtn.disabled = false;
 
-  const card = document.getElementById('event-card');
-  card.className = 'event-card';
-  document.getElementById('event-text').textContent = '주사위를 굴려 게임을 시작하세요!';
+  DOM.eventCard.className = 'event-card';
+  DOM.eventText.textContent = '주사위를 굴려 게임을 시작하세요!';
 
   const modal = document.getElementById('complete-modal');
   if (modal) modal.remove();
 
   // 파티클 정리
-  document.getElementById('particles').innerHTML = '';
+  DOM.particles.innerHTML = '';
 
-  setDiceValue(document.getElementById('dice1'), 1);
-  setDiceValue(document.getElementById('dice2'), 1);
+  setDiceValue(DOM.dice1, 1);
+  setDiceValue(DOM.dice2, 1);
 
   buildBoard();
 }
 
+// ===== 사운드 =====
+const Sound = {
+  ctx: null,
+  enabled: true,
+
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  },
+
+  play(freq, duration, type = 'sine', gainVal = 0.3) {
+    if (!this.enabled || !this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+    gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    osc.start(this.ctx.currentTime);
+    osc.stop(this.ctx.currentTime + duration);
+  },
+
+  diceRoll() {
+    if (!this.enabled || !this.ctx) return;
+    const freqs = [300, 250, 320, 270, 310, 260, 290];
+    freqs.forEach((f, i) => {
+      setTimeout(() => this.play(f, 0.07, 'square', 0.15), i * 80);
+    });
+  },
+
+  step() {
+    this.play(520, 0.06, 'sine', 0.2);
+  },
+
+  positive() {
+    if (!this.enabled || !this.ctx) return;
+    [440, 554, 659].forEach((f, i) => {
+      setTimeout(() => this.play(f, 0.15, 'sine', 0.25), i * 80);
+    });
+  },
+
+  negative() {
+    if (!this.enabled || !this.ctx) return;
+    [330, 277, 220].forEach((f, i) => {
+      setTimeout(() => this.play(f, 0.15, 'sawtooth', 0.2), i * 90);
+    });
+  },
+
+  complete() {
+    if (!this.enabled || !this.ctx) return;
+    const melody = [
+      { f: 523, t: 0 },
+      { f: 659, t: 150 },
+      { f: 784, t: 300 },
+      { f: 1047, t: 450 },
+      { f: 784, t: 600 },
+      { f: 1047, t: 750 },
+    ];
+    melody.forEach(({ f, t }) => {
+      setTimeout(() => this.play(f, 0.25, 'sine', 0.3), t);
+    });
+  },
+
+  toggle() {
+    this.enabled = !this.enabled;
+    const btn = document.getElementById('sound-toggle-btn');
+    if (btn) btn.textContent = this.enabled ? '🔊' : '🔇';
+  },
+};
+
 // ===== 유틸 =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ===== 인트로 모달 =====
+function showIntroModal() {
+  DOM.introLogoTop.textContent = BRAND.logoTop;
+  DOM.introLogoBottom.textContent = BRAND.logoBottom;
+  DOM.introStartBtn.addEventListener('click', () => {
+    DOM.introModal.remove();
+    DOM.introModal = null;
+  });
+}
+
 // ===== 초기화 =====
-initDice3D(document.getElementById('dice1'));
-initDice3D(document.getElementById('dice2'));
-setDiceValue(document.getElementById('dice1'), 1);
-setDiceValue(document.getElementById('dice2'), 1);
+cacheDom();
+
+DOM.rollBtn.addEventListener('click', rollDice);
+DOM.resetBtn.addEventListener('click', resetGame);
+
+const soundToggleBtn = document.getElementById('sound-toggle-btn');
+if (soundToggleBtn) soundToggleBtn.addEventListener('click', () => Sound.toggle());
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== ' ' && e.key !== 'Enter') return;
+  e.preventDefault();
+  // 인트로 모달이 열려 있으면 게임 시작
+  if (DOM.introModal) {
+    DOM.introModal.remove();
+    return;
+  }
+  rollDice();
+});
+
+initDice3D(DOM.dice1);
+initDice3D(DOM.dice2);
+setDiceValue(DOM.dice1, 1);
+setDiceValue(DOM.dice2, 1);
 buildBoard();
+showIntroModal();
